@@ -1,4 +1,4 @@
-**Bloom** is a lightweight desktop app for taking notes quickly using Markdown.  
+**Bloom** is a lightweight desktop app for taking notes quickly using Markdown
 
 ---
 
