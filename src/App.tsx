@@ -276,6 +276,15 @@ export default function App() {
         });
         splitMenuItemRef.current = splitItem;
 
+        const toggleThemeItem = await tauriMenu.MenuItem.new({
+          id: "view_toggle_theme",
+          text: "Toggle theme",
+          accelerator: "CmdOrCtrl+T",
+          action: () => {
+            setTheme((prev) => (prev === "dark" ? "light" : "dark"));
+          },
+        });
+
         const fileMenu = await tauriMenu.Submenu.new({
           id: "menu_file",
           text: "File",
@@ -285,7 +294,7 @@ export default function App() {
         const viewMenu = await tauriMenu.Submenu.new({
           id: "menu_view",
           text: "View",
-          items: [singleItem, splitItem],
+          items: [singleItem, splitItem, toggleThemeItem],
         });
 
         // Sur macOS, le menu est global (app-wide).
