@@ -1,8 +1,10 @@
 import "./App.css";
-import { useEffect, useMemo, useState } from "preact/hooks";
+import { useEffect, useMemo, useRef, useState } from "preact/hooks";
 import MarkdownIt from "markdown-it";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { readTextFile, writeTextFile } from "@tauri-apps/plugin-fs";
+import { menu as tauriMenu } from "@tauri-apps/api";
+import type { CheckMenuItem, MenuItem } from "@tauri-apps/api/menu";
 
 type Mode = "single" | "split";
 type SingleView = "edit" | "preview";
@@ -14,16 +16,16 @@ const md = new MarkdownIt({
   typographer: true,
 });
 
-function displayPath(path: string | null) {
+function basenameFromTauriPath(path: string | null) {
   if (!path) return "";
+  // Some Tauri flows return a URI (eg. file://...)
   try {
-    // Some Tauri flows return a URI (eg. file://...)
     const url = new URL(path);
     const last = url.pathname.split("/").filter(Boolean).pop();
-    return last ? last : path;
+    return last ?? path;
   } catch {
     const last = path.split("/").filter(Boolean).pop();
-    return last ? last : path;
+    return last ?? path;
   }
 }
 
@@ -37,14 +39,21 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
 
   const previewHtml = useMemo(() => md.render(content || ""), [content]);
+  const previewElRef = useRef<HTMLDivElement | null>(null);
 
-  const toggleMode = () => {
-    setMode((prev) => (prev === "single" ? "split" : "single"));
-  };
+  const filePathRef = useRef<string | null>(null);
+  const contentRef = useRef<string>("");
+  const dirtyRef = useRef(false);
+  useEffect(() => {
+    filePathRef.current = filePath;
+    contentRef.current = content;
+    dirtyRef.current = dirty;
+  }, [filePath, content, dirty]);
 
-  const toggleSingleView = () => {
-    setSingleView((prev) => (prev === "edit" ? "preview" : "edit"));
-  };
+  const menuInitRef = useRef(false);
+  const saveMenuItemRef = useRef<MenuItem | null>(null);
+  const singleMenuItemRef = useRef<CheckMenuItem | null>(null);
+  const splitMenuItemRef = useRef<CheckMenuItem | null>(null);
 
   const openMarkdown = async () => {
     setError(null);
@@ -60,7 +69,6 @@ export default function App() {
       setFilePath(selected);
       setContent(text);
       setDirty(false);
-      setSingleView("edit");
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       setError(msg);
@@ -71,19 +79,22 @@ export default function App() {
   const saveMarkdown = async () => {
     setError(null);
     try {
-      if (!filePath) {
+      const currentPath = filePathRef.current;
+      const currentContent = contentRef.current;
+
+      if (!currentPath) {
         const selected = await save({
           filters: [{ name: "Markdown", extensions: ["md", "markdown"] }],
           defaultPath: "note.md",
         });
         if (!selected) return;
-        await writeTextFile(selected, content);
-        setFilePath(selected);
+        await writeTextFile(selected, currentContent);
+        setFilePath(selected); // persist actual path for subsequent saves
         setDirty(false);
         return;
       }
 
-      await writeTextFile(filePath, content);
+      await writeTextFile(currentPath, currentContent);
       setDirty(false);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
@@ -99,14 +110,9 @@ export default function App() {
       if (!modKey) return;
 
       const key = event.key.toLowerCase();
-      if (key === "m") {
+      if (key === "o") {
         event.preventDefault();
-        toggleMode();
-        return;
-      }
-      if (key === "i" && mode === "single") {
-        event.preventDefault();
-        toggleSingleView();
+        void openMarkdown();
         return;
       }
       if (key === "s") {
@@ -114,67 +120,154 @@ export default function App() {
         void saveMarkdown();
         return;
       }
+      if (key === "m") {
+        event.preventDefault();
+        setMode((prev) => (prev === "single" ? "split" : "single"));
+        return;
+      }
+      if (key === "i") {
+        event.preventDefault();
+        setSingleView((prev) => (mode === "single" ? (prev === "edit" ? "preview" : "edit") : prev));
+        return;
+      }
     };
 
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [mode, filePath, content]);
+  }, [mode]);
 
-  const showEditor = mode === "split" || singleView === "edit";
-  const showPreview = mode === "split" || singleView === "preview";
+  // Single/Split + Open/Save via le menu Tauri (File / View).
+  useEffect(() => {
+    if (menuInitRef.current) return;
+    menuInitRef.current = true;
+
+    const init = async () => {
+      try {
+        const openItem = await tauriMenu.MenuItem.new({
+          id: "file_open",
+          text: "Ouvrir…",
+          action: () => {
+            void openMarkdown();
+          },
+        });
+
+        const saveItem = await tauriMenu.MenuItem.new({
+          id: "file_save",
+          text: "Enregistrer",
+          enabled: false,
+          action: () => {
+            void saveMarkdown();
+          },
+        });
+        saveMenuItemRef.current = saveItem;
+
+        const singleItem = await tauriMenu.CheckMenuItem.new({
+          id: "view_single",
+          text: "Single",
+          checked: mode === "single",
+          action: () => {
+            setMode("single");
+          },
+        });
+        singleMenuItemRef.current = singleItem;
+
+        const splitItem = await tauriMenu.CheckMenuItem.new({
+          id: "view_split",
+          text: "Split",
+          checked: mode === "split",
+          action: () => {
+            setMode("split");
+          },
+        });
+        splitMenuItemRef.current = splitItem;
+
+        const fileMenu = await tauriMenu.Submenu.new({
+          id: "menu_file",
+          text: "File",
+          items: [openItem, saveItem],
+        });
+
+        const viewMenu = await tauriMenu.Submenu.new({
+          id: "menu_view",
+          text: "View",
+          items: [singleItem, splitItem],
+        });
+
+        // Sur macOS, le menu est global (app-wide).
+        const appMenu = await tauriMenu.Menu.new({
+          id: "app_menu",
+          items: [fileMenu, viewMenu],
+        });
+        await appMenu.setAsAppMenu();
+      } catch (e) {
+        console.error("Failed to init Tauri menu", e);
+      }
+    };
+
+    void init();
+  }, []);
+
+  useEffect(() => {
+    if (singleMenuItemRef.current) {
+      void singleMenuItemRef.current.setChecked(mode === "single");
+    }
+    if (splitMenuItemRef.current) {
+      void splitMenuItemRef.current.setChecked(mode === "split");
+    }
+    if (saveMenuItemRef.current) {
+      void saveMenuItemRef.current.setEnabled(filePathRef.current !== null);
+    }
+  }, [mode, filePath, dirty]);
+
+  const title = basenameFromTauriPath(filePath) || "Aucun document";
+
+  const showEditor = mode === "split" || (mode === "single" && singleView === "edit");
+  const showPreview = mode === "split" || (mode === "single" && singleView === "preview");
+
+  useEffect(() => {
+    if (!showPreview) return;
+    if (!previewElRef.current) return;
+    previewElRef.current.innerHTML = previewHtml;
+  }, [previewHtml, showPreview]);
 
   return (
     <div className="app">
-      <div className="toolbar">
-        <button type="button" onClick={() => void openMarkdown()}>
-          Ouvrir…
-        </button>
-        <button type="button" onClick={() => void saveMarkdown()} disabled={!dirty && !filePath}>
-          Enregistrer
-        </button>
-
-        <div className="toolbarSpacer" />
-
-        <button type="button" onClick={toggleMode} className="modeButton">
-          Mode: {mode === "single" ? "Single" : "Split"}
-        </button>
-        <button
-          type="button"
-          onClick={toggleSingleView}
-          className="modeButton"
-          disabled={mode !== "single"}
-          aria-disabled={mode !== "single"}
-        >
-          Vue: {singleView === "edit" ? "Édition" : "Preview"}
-        </button>
-      </div>
-
       {error ? <div className="error">{error}</div> : null}
 
-      <div className="fileInfo">
-        <span className="filePath">{displayPath(filePath)}</span>
-        {dirty ? <span className="dirty">Modifié</span> : null}
-      </div>
+      <div className="doc">
+        <div className="docTitle">{title}</div>
 
-      <div className={mode === "split" ? "splitLayout" : "singleLayout"}>
-        {showEditor ? (
-          <textarea
-            className={mode === "split" ? "editor editorSplit" : "editor editorSingle"}
-            value={content}
-            onInput={(e) => {
-              setContent((e.target as HTMLTextAreaElement).value);
-              setDirty(true);
-            }}
-            placeholder={"Commencez à écrire votre Markdown…"}
-          />
-        ) : null}
-
-        {showPreview ? (
-          <div
-            className={mode === "split" ? "preview previewSplit" : "preview previewSingle"}
-            dangerouslySetInnerHTML={{ __html: previewHtml }}
-          />
-        ) : null}
+        {mode === "split" ? (
+          <div className="splitLayout">
+            {showEditor ? (
+              <textarea
+                className="editor editorSplit"
+                value={content}
+                onInput={(e) => {
+                  setContent((e.target as HTMLTextAreaElement).value);
+                  setDirty(true);
+                }}
+                placeholder={"Commencez à écrire votre Markdown…"}
+              />
+            ) : null}
+            {showPreview ? <div ref={previewElRef} className="preview previewSplit" /> : null}
+          </div>
+        ) : (
+          <div className="singleLayout">
+            {showEditor ? (
+              <textarea
+                className="editor editorSingle"
+                value={content}
+                onInput={(e) => {
+                  setContent((e.target as HTMLTextAreaElement).value);
+                  setDirty(true);
+                }}
+                placeholder={"Commencez à écrire votre Markdown…"}
+              />
+            ) : null}
+            {showPreview ? <div ref={previewElRef} className="preview previewSingle" /> : null}
+          </div>
+        )}
       </div>
     </div>
   );
