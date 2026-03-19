@@ -49,6 +49,20 @@ export default function App() {
   const filePathRef = useRef<string | null>(null);
   const contentRef = useRef<string>("");
   const dirtyRef = useRef(false);
+  const savedContentRef = useRef<string>("");
+
+  // Undo/Redo (Ctrl/Cmd+Z / Ctrl/Cmd+Shift+Z / Ctrl/Cmd+Y)
+  const historyRef = useRef<{
+    past: string[];
+    future: string[];
+    typingTimer: number | null;
+    pendingPrev: string | null;
+  }>({
+    past: [],
+    future: [],
+    typingTimer: null,
+    pendingPrev: null,
+  });
   useEffect(() => {
     filePathRef.current = filePath;
     contentRef.current = content;
@@ -74,6 +88,14 @@ export default function App() {
       setFilePath(selected);
       setContent(text);
       setDirty(false);
+      savedContentRef.current = text;
+      historyRef.current.past = [];
+      historyRef.current.future = [];
+      if (historyRef.current.typingTimer) {
+        clearTimeout(historyRef.current.typingTimer);
+      }
+      historyRef.current.typingTimer = null;
+      historyRef.current.pendingPrev = null;
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       setError(msg);
@@ -96,11 +118,27 @@ export default function App() {
         await writeTextFile(selected, currentContent);
         setFilePath(selected); // persist actual path for subsequent saves
         setDirty(false);
+        savedContentRef.current = currentContent;
+        historyRef.current.past = [];
+        historyRef.current.future = [];
+        if (historyRef.current.typingTimer) {
+          clearTimeout(historyRef.current.typingTimer);
+        }
+        historyRef.current.typingTimer = null;
+        historyRef.current.pendingPrev = null;
         return;
       }
 
       await writeTextFile(currentPath, currentContent);
       setDirty(false);
+      savedContentRef.current = currentContent;
+      historyRef.current.past = [];
+      historyRef.current.future = [];
+      if (historyRef.current.typingTimer) {
+        clearTimeout(historyRef.current.typingTimer);
+      }
+      historyRef.current.typingTimer = null;
+      historyRef.current.pendingPrev = null;
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       setError(msg);
@@ -138,6 +176,43 @@ export default function App() {
       if (key === "t") {
         event.preventDefault();
         setTheme((prev) => (prev === "dark" ? "light" : "dark"));
+        return;
+      }
+
+      // Undo / Redo (dans l'éditeur)
+      const active = document.activeElement;
+      const isEditorFocused = active instanceof HTMLTextAreaElement;
+      if (isEditorFocused && key === "z" && !event.shiftKey) {
+        if (historyRef.current.past.length === 0) return;
+        event.preventDefault();
+        if (historyRef.current.typingTimer) {
+          clearTimeout(historyRef.current.typingTimer);
+          historyRef.current.typingTimer = null;
+        }
+        historyRef.current.pendingPrev = null;
+
+        const current = contentRef.current;
+        historyRef.current.future.push(current);
+        const prev = historyRef.current.past.pop()!;
+        setContent(prev);
+        setDirty(prev !== savedContentRef.current);
+        return;
+      }
+
+      if (isEditorFocused && ((key === "z" && event.shiftKey) || key === "y")) {
+        if (historyRef.current.future.length === 0) return;
+        event.preventDefault();
+        if (historyRef.current.typingTimer) {
+          clearTimeout(historyRef.current.typingTimer);
+          historyRef.current.typingTimer = null;
+        }
+        historyRef.current.pendingPrev = null;
+
+        const current = contentRef.current;
+        historyRef.current.past.push(current);
+        const next = historyRef.current.future.pop()!;
+        setContent(next);
+        setDirty(next !== savedContentRef.current);
         return;
       }
     };
@@ -254,8 +329,28 @@ export default function App() {
                 className="editor editorSplit"
                 value={content}
                 onInput={(e) => {
-                  setContent((e.target as HTMLTextAreaElement).value);
-                  setDirty(true);
+                  const next = (e.target as HTMLTextAreaElement).value;
+                  const prev = contentRef.current;
+
+                  setContent(next);
+                  setDirty(next !== savedContentRef.current);
+
+                  // Group undo steps while typing (debounce).
+                  if (historyRef.current.pendingPrev === null) {
+                    if (historyRef.current.past.length === 0 || historyRef.current.past[historyRef.current.past.length - 1] !== prev) {
+                      historyRef.current.past.push(prev);
+                    }
+                    historyRef.current.future = [];
+                    historyRef.current.pendingPrev = prev;
+                  }
+
+                  if (historyRef.current.typingTimer) {
+                    clearTimeout(historyRef.current.typingTimer);
+                  }
+                  historyRef.current.typingTimer = window.setTimeout(() => {
+                    historyRef.current.pendingPrev = null;
+                    historyRef.current.typingTimer = null;
+                  }, 500);
                 }}
                 placeholder={"Commencez à écrire votre Markdown…"}
               />
@@ -269,8 +364,28 @@ export default function App() {
                 className="editor editorSingle"
                 value={content}
                 onInput={(e) => {
-                  setContent((e.target as HTMLTextAreaElement).value);
-                  setDirty(true);
+                  const next = (e.target as HTMLTextAreaElement).value;
+                  const prev = contentRef.current;
+
+                  setContent(next);
+                  setDirty(next !== savedContentRef.current);
+
+                  // Group undo steps while typing (debounce).
+                  if (historyRef.current.pendingPrev === null) {
+                    if (historyRef.current.past.length === 0 || historyRef.current.past[historyRef.current.past.length - 1] !== prev) {
+                      historyRef.current.past.push(prev);
+                    }
+                    historyRef.current.future = [];
+                    historyRef.current.pendingPrev = prev;
+                  }
+
+                  if (historyRef.current.typingTimer) {
+                    clearTimeout(historyRef.current.typingTimer);
+                  }
+                  historyRef.current.typingTimer = window.setTimeout(() => {
+                    historyRef.current.pendingPrev = null;
+                    historyRef.current.typingTimer = null;
+                  }, 500);
                 }}
                 placeholder={"Commencez à écrire votre Markdown…"}
               />
