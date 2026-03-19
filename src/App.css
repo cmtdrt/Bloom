@@ -11,8 +11,12 @@
   line-height: 24px;
   font-weight: 400;
 
-  color: #0f0f0f;
-  background-color: #f6f6f6;
+  --text-color: #0f0f0f;
+  --bg-color: #f6f6f6;
+  --panel-bg: rgba(255, 255, 255, 0.88);
+  --panel-border: rgba(0, 0, 0, 0.10);
+  color: var(--text-color);
+  background-color: var(--bg-color);
 
   font-synthesis: none;
   text-rendering: optimizeLegibility;
@@ -97,8 +101,12 @@ button {
 
 @media (prefers-color-scheme: dark) {
   :root {
-    color: #f6f6f6;
-    background-color: #2f2f2f;
+    --text-color: #d1d5db; /* gris clair */
+    --bg-color: #2f2f2f;
+    --panel-bg: rgba(0, 0, 0, 0.22);
+    --panel-border: rgba(255, 255, 255, 0.10);
+    color: var(--text-color);
+    background-color: var(--bg-color);
   }
 
   a:hover {
@@ -126,15 +134,15 @@ button {
   }
 
   .editor {
-    color: #ffffff;
     background: rgba(0, 0, 0, 0.25);
     border: 1px solid rgba(255, 255, 255, 0.12);
     box-shadow: 0 2px 2px rgba(0, 0, 0, 0.25);
+    color: var(--text-color);
   }
 
   .preview {
-    background: rgba(0, 0, 0, 0.22);
-    border: 1px solid rgba(255, 255, 255, 0.10);
+    background: var(--panel-bg);
+    border: 1px solid var(--panel-border);
     box-shadow: 0 2px 2px rgba(0, 0, 0, 0.25);
   }
 }
@@ -143,6 +151,19 @@ button {
   min-height: 100vh;
   display: flex;
   flex-direction: column;
+}
+
+.doc {
+  flex: 1;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.docTitle {
+  font-weight: 700;
+  font-size: 18px;
 }
 
 .toolbar {
@@ -217,6 +238,7 @@ button {
   font-size: 14px;
   line-height: 20px;
   outline: none;
+  color: var(--text-color);
 }
 
 .editorSplit {
@@ -232,10 +254,12 @@ button {
   flex: 1;
   border-radius: 10px;
   padding: 14px;
-  background: rgba(255, 255, 255, 0.88);
-  border: 1px solid rgba(0, 0, 0, 0.10);
+  background: var(--panel-bg);
+  border: 1px solid var(--panel-border);
   box-shadow: 0 2px 2px rgba(0, 0, 0, 0.06);
   overflow: auto;
+  color: var(--text-color);
+  font-family: inherit;
 }
 
 .previewSingle {
