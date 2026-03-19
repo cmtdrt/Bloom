@@ -6,11 +6,11 @@
 
 - **Markdown Editing**: write notes with bold, italics, headings, lists, etc.  
 - **View Modes**:
-  - `Word mode`: focus on the page at the center, distraction-free  
-  - `Split mode`: writing on the left, live Markdown preview on the right  
+  - `Single`: focus on the page at the center, distraction-free  
+  - `Split`: writing on the left, live Markdown preview on the right  
 - **Keyboard Shortcuts**:
-  - `Ctrl/Cmd + M`: toggle between Word and Split modes  
-  - `Ctrl/Cmd + I`: in Word mode, toggle between editing and preview  
+  - `Ctrl/Cmd + M`: toggle between Single and Split  
+  - `Ctrl/Cmd + I`: in Single mode, toggle between editing and preview  
 
 ---
 
