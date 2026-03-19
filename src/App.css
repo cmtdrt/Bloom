@@ -11,10 +11,26 @@
   line-height: 24px;
   font-weight: 400;
 
-  --text-color: #0f0f0f;
-  --bg-color: #f6f6f6;
-  --panel-bg: rgba(255, 255, 255, 0.88);
-  --panel-border: rgba(0, 0, 0, 0.10);
+  /* Thème par défaut: DARK (on ne dépend pas de prefers-color-scheme) */
+  --text-color: #d1d5db;
+  --bg-color: #2f2f2f;
+  --panel-bg: rgba(0, 0, 0, 0.22);
+  --panel-border: rgba(255, 255, 255, 0.10);
+
+  --toolbar-bg: rgba(15, 15, 15, 0.75);
+  --toolbar-border: rgba(255, 255, 255, 0.08);
+
+  --button-bg: rgba(15, 15, 15, 0.6);
+  --button-active-bg: rgba(15, 15, 15, 0.41);
+
+  --editor-bg: rgba(0, 0, 0, 0.25);
+  --editor-border: rgba(255, 255, 255, 0.12);
+
+  --error-border: rgba(248, 113, 113, 0.35);
+  --error-bg: rgba(248, 113, 113, 0.10);
+  --error-color: #fecaca;
+
+  --code-block-bg: rgba(255, 255, 255, 0.06);
   color: var(--text-color);
   background-color: var(--bg-color);
 
@@ -72,8 +88,8 @@ button {
   font-size: 1em;
   font-weight: 500;
   font-family: inherit;
-  color: #0f0f0f;
-  background-color: #ffffff;
+  color: var(--text-color);
+  background-color: var(--button-bg);
   transition: border-color 0.25s;
   box-shadow: 0 2px 2px rgba(0, 0, 0, 0.2);
 }
@@ -87,7 +103,7 @@ button:hover {
 }
 button:active {
   border-color: #396cd8;
-  background-color: #e8e8e8;
+  background-color: var(--button-active-bg);
 }
 
 input,
@@ -99,52 +115,26 @@ button {
   margin-right: 5px;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --text-color: #d1d5db; /* gris clair */
-    --bg-color: #2f2f2f;
-    --panel-bg: rgba(0, 0, 0, 0.22);
-    --panel-border: rgba(255, 255, 255, 0.10);
-    color: var(--text-color);
-    background-color: var(--bg-color);
-  }
+[data-theme="light"] {
+  --text-color: #0f0f0f;
+  --bg-color: #f6f6f6;
+  --panel-bg: rgba(255, 255, 255, 0.88);
+  --panel-border: rgba(0, 0, 0, 0.10);
 
-  a:hover {
-    color: #24c8db;
-  }
+  --toolbar-bg: rgba(246, 246, 246, 0.85);
+  --toolbar-border: rgba(0, 0, 0, 0.06);
 
-  input,
-  button {
-    color: #ffffff;
-    background-color: #0f0f0f98;
-  }
-  button:active {
-    background-color: #0f0f0f69;
-  }
+  --button-bg: #ffffff;
+  --button-active-bg: #e8e8e8;
 
-  .toolbar {
-    background: rgba(15, 15, 15, 0.75);
-    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-  }
+  --editor-bg: #ffffff;
+  --editor-border: rgba(0, 0, 0, 0.12);
 
-  .error {
-    border: 1px solid rgba(248, 113, 113, 0.35);
-    background: rgba(248, 113, 113, 0.10);
-    color: #fecaca;
-  }
+  --error-border: rgba(220, 38, 38, 0.35);
+  --error-bg: rgba(220, 38, 38, 0.08);
+  --error-color: #b91c1c;
 
-  .editor {
-    background: rgba(0, 0, 0, 0.25);
-    border: 1px solid rgba(255, 255, 255, 0.12);
-    box-shadow: 0 2px 2px rgba(0, 0, 0, 0.25);
-    color: var(--text-color);
-  }
-
-  .preview {
-    background: var(--panel-bg);
-    border: 1px solid var(--panel-border);
-    box-shadow: 0 2px 2px rgba(0, 0, 0, 0.25);
-  }
+  --code-block-bg: rgba(0, 0, 0, 0.04);
 }
 
 .app {
@@ -174,9 +164,9 @@ button {
   gap: 10px;
   align-items: center;
   padding: 12px 14px;
-  background: rgba(246, 246, 246, 0.85);
+  background: var(--toolbar-bg);
   backdrop-filter: blur(10px);
-  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+  border-bottom: 1px solid var(--toolbar-border);
 }
 
 .toolbarSpacer {
@@ -191,9 +181,9 @@ button {
   margin: 10px 14px;
   padding: 10px 12px;
   border-radius: 8px;
-  border: 1px solid rgba(220, 38, 38, 0.35);
-  background: rgba(220, 38, 38, 0.08);
-  color: #b91c1c;
+  border: 1px solid var(--error-border);
+  background: var(--error-bg);
+  color: var(--error-color);
 }
 
 .fileInfo {
@@ -230,8 +220,8 @@ button {
   border-radius: 10px;
   padding: 14px;
   resize: none;
-  background: #ffffff;
-  border: 1px solid rgba(0, 0, 0, 0.12);
+  background: var(--editor-bg);
+  border: 1px solid var(--editor-border);
   box-shadow: 0 2px 2px rgba(0, 0, 0, 0.06);
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono",
     "Courier New", monospace;
@@ -274,7 +264,7 @@ button {
 .preview :global(pre) {
   padding: 12px;
   border-radius: 10px;
-  background: rgba(0, 0, 0, 0.04);
+  background: var(--code-block-bg);
 }
 
 .preview :global(code) {

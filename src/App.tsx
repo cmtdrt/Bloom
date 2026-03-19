@@ -30,6 +30,7 @@ function basenameFromTauriPath(path: string | null) {
 }
 
 export default function App() {
+  const [theme, setTheme] = useState<"dark" | "light">("dark");
   const [mode, setMode] = useState<Mode>("single");
   const [singleView, setSingleView] = useState<SingleView>("edit");
 
@@ -40,6 +41,10 @@ export default function App() {
 
   const previewHtml = useMemo(() => md.render(content || ""), [content]);
   const previewElRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme;
+  }, [theme]);
 
   const filePathRef = useRef<string | null>(null);
   const contentRef = useRef<string>("");
@@ -128,6 +133,11 @@ export default function App() {
       if (key === "i") {
         event.preventDefault();
         setSingleView((prev) => (mode === "single" ? (prev === "edit" ? "preview" : "edit") : prev));
+        return;
+      }
+      if (key === "t") {
+        event.preventDefault();
+        setTheme((prev) => (prev === "dark" ? "light" : "dark"));
         return;
       }
     };
