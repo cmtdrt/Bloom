@@ -112,7 +112,7 @@ export default function App() {
       if (!currentPath) {
         const selected = await save({
           filters: [{ name: "Markdown", extensions: ["md", "markdown"] }],
-          defaultPath: "note.md",
+          defaultPath: "untitled.md",
         });
         if (!selected) return;
         await writeTextFile(selected, currentContent);
@@ -323,7 +323,7 @@ export default function App() {
     }
   }, [mode, filePath, dirty]);
 
-  const title = basenameFromTauriPath(filePath) || "Aucun document";
+  const title = basenameFromTauriPath(filePath) || "untitled.md";
 
   const showEditor = mode === "split" || (mode === "single" && singleView === "edit");
   const showPreview = mode === "split" || (mode === "single" && singleView === "preview");
