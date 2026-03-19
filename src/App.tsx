@@ -179,9 +179,19 @@ export default function App() {
         return;
       }
 
-      // Undo / Redo (dans l'éditeur)
       const active = document.activeElement;
       const isEditorFocused = active instanceof HTMLTextAreaElement;
+      if (isEditorFocused && (key === "c" || key === "x")) {
+        event.preventDefault();
+        const cmd = key === "c" ? "copy" : "cut";
+        try {
+          document.execCommand(cmd);
+        } catch (e) {
+          console.error(e);
+        }
+        return;
+      }
+
       if (isEditorFocused && key === "z" && !event.shiftKey) {
         if (historyRef.current.past.length === 0) return;
         event.preventDefault();
