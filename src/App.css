@@ -138,9 +138,107 @@ button {
 }
 
 .app {
-  min-height: 100vh;
+  height: 100vh;
+  display: flex;
+  flex-direction: row;
+}
+
+.mainPane {
+  flex: 1;
+  min-width: 0;
   display: flex;
   flex-direction: column;
+}
+
+.workspace {
+  border-right: 1px solid var(--panel-border);
+  background: var(--panel-bg);
+  display: flex;
+  flex-direction: column;
+}
+
+.workspaceClosed {
+  width: 44px;
+}
+
+.workspaceOpen {
+  width: 250px;
+}
+
+.workspaceBurger {
+  width: 44px;
+  height: 44px;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  font-size: 18px;
+}
+
+.workspaceBody {
+  padding: 6px 8px 10px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.workspaceHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.workspaceTitle {
+  font-size: 12px;
+  font-weight: 700;
+  opacity: 0.75;
+  text-transform: uppercase;
+}
+
+.workspaceAddBtn {
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  line-height: 1;
+  font-size: 18px;
+  border-radius: 6px;
+  box-shadow: none;
+}
+
+.workspaceList {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.workspaceItem {
+  width: 100%;
+  text-align: left;
+  padding: 8px 10px;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  background: transparent;
+  box-shadow: none;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workspaceItem.active {
+  border-color: #396cd8;
+}
+
+.workspaceContextMenu {
+  position: fixed;
+  z-index: 1000;
+  padding: 4px;
+  border-radius: 8px;
+  border: 1px solid var(--panel-border);
+  background: var(--panel-bg);
+}
+
+.workspaceContextMenu button {
+  box-shadow: none;
 }
 
 .doc {

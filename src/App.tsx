@@ -8,6 +8,7 @@ import type { CheckMenuItem, MenuItem } from "@tauri-apps/api/menu";
 
 type Mode = "single" | "split";
 type SingleView = "edit" | "preview";
+const WORKSPACE_STORAGE_KEY = "bloom.workspace.files";
 
 const md = new MarkdownIt({
   html: false,
@@ -38,9 +39,47 @@ export default function App() {
   const [content, setContent] = useState<string>("");
   const [dirty, setDirty] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [workspaceOpen, setWorkspaceOpen] = useState(false);
+  const [workspaceFiles, setWorkspaceFiles] = useState<string[]>([]);
+  const [workspaceMenu, setWorkspaceMenu] = useState<{
+    path: string;
+    x: number;
+    y: number;
+  } | null>(null);
 
   const previewHtml = useMemo(() => md.render(content || ""), [content]);
   const previewElRef = useRef<HTMLDivElement | null>(null);
+
+  const addPathToWorkspace = (path: string) => {
+    setWorkspaceFiles((prev) => (prev.includes(path) ? prev : [...prev, path]));
+  };
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(WORKSPACE_STORAGE_KEY);
+      if (!raw) return;
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) {
+        setWorkspaceFiles(parsed.filter((item): item is string => typeof item === "string"));
+      }
+    } catch {
+      // ignore malformed local storage values
+    }
+  }, []);
+
+  useEffect(() => {
+    localStorage.setItem(WORKSPACE_STORAGE_KEY, JSON.stringify(workspaceFiles));
+  }, [workspaceFiles]);
+
+  useEffect(() => {
+    const closeWorkspaceMenu = () => setWorkspaceMenu(null);
+    window.addEventListener("click", closeWorkspaceMenu);
+    window.addEventListener("resize", closeWorkspaceMenu);
+    return () => {
+      window.removeEventListener("click", closeWorkspaceMenu);
+      window.removeEventListener("resize", closeWorkspaceMenu);
+    };
+  }, []);
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -87,6 +126,7 @@ export default function App() {
       const text = await readTextFile(selected);
       setFilePath(selected);
       setContent(text);
+      addPathToWorkspace(selected);
       setDirty(false);
       savedContentRef.current = text;
       historyRef.current.past = [];
@@ -96,6 +136,46 @@ export default function App() {
       }
       historyRef.current.typingTimer = null;
       historyRef.current.pendingPrev = null;
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setError(msg);
+      console.error(e);
+    }
+  };
+
+  const openWorkspaceFile = async (path: string) => {
+    setError(null);
+    try {
+      const text = await readTextFile(path);
+      addPathToWorkspace(path);
+      setFilePath(path);
+      setContent(text);
+      setDirty(false);
+      savedContentRef.current = text;
+      historyRef.current.past = [];
+      historyRef.current.future = [];
+      if (historyRef.current.typingTimer) {
+        clearTimeout(historyRef.current.typingTimer);
+      }
+      historyRef.current.typingTimer = null;
+      historyRef.current.pendingPrev = null;
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setError(msg);
+      console.error(e);
+    }
+  };
+
+  const addFileToWorkspace = async () => {
+    setError(null);
+    try {
+      const selected = await open({
+        multiple: false,
+        directory: false,
+        filters: [{ name: "Markdown", extensions: ["md", "markdown"] }],
+      });
+      if (!selected) return;
+      addPathToWorkspace(selected);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       setError(msg);
@@ -117,6 +197,7 @@ export default function App() {
         if (!selected) return;
         await writeTextFile(selected, currentContent);
         setFilePath(selected); // persist actual path for subsequent saves
+        addPathToWorkspace(selected);
         setDirty(false);
         savedContentRef.current = currentContent;
         historyRef.current.past = [];
@@ -336,83 +417,144 @@ export default function App() {
 
   return (
     <div className="app">
-      {error ? <div className="error">{error}</div> : null}
+      <aside className={workspaceOpen ? "workspace workspaceOpen" : "workspace workspaceClosed"}>
+        <button
+          type="button"
+          className="workspaceBurger"
+          aria-label="Toggle workspace"
+          onClick={() => setWorkspaceOpen((prev) => !prev)}
+        >
+          ☰
+        </button>
 
-      <div className="doc">
-        <div className="docTitle">{title}</div>
-
-        {mode === "split" ? (
-          <div className="splitLayout">
-            {showEditor ? (
-              <textarea
-                className="editor editorSplit"
-                value={content}
-                onInput={(e) => {
-                  const next = (e.target as HTMLTextAreaElement).value;
-                  const prev = contentRef.current;
-
-                  setContent(next);
-                  setDirty(next !== savedContentRef.current);
-
-                  // Group undo steps while typing (debounce).
-                  if (historyRef.current.pendingPrev === null) {
-                    if (historyRef.current.past.length === 0 || historyRef.current.past[historyRef.current.past.length - 1] !== prev) {
-                      historyRef.current.past.push(prev);
-                    }
-                    historyRef.current.future = [];
-                    historyRef.current.pendingPrev = prev;
-                  }
-
-                  if (historyRef.current.typingTimer) {
-                    clearTimeout(historyRef.current.typingTimer);
-                  }
-                  historyRef.current.typingTimer = window.setTimeout(() => {
-                    historyRef.current.pendingPrev = null;
-                    historyRef.current.typingTimer = null;
-                  }, 500);
-                }}
-                placeholder={"Commencez à écrire votre Markdown…"}
-              />
-            ) : null}
-            {showPreview ? <div ref={previewElRef} className="preview previewSplit" /> : null}
+        {workspaceOpen ? (
+          <div className="workspaceBody">
+            <div className="workspaceHeader">
+              <div className="workspaceTitle">Workspace</div>
+              <button
+                type="button"
+                className="workspaceAddBtn"
+                aria-label="Add file to workspace"
+                onClick={() => void addFileToWorkspace()}
+              >
+                +
+              </button>
+            </div>
+            <div className="workspaceList">
+              {workspaceFiles.map((path) => (
+                <button
+                  key={path}
+                  type="button"
+                  className={path === filePath ? "workspaceItem active" : "workspaceItem"}
+                  onClick={() => void openWorkspaceFile(path)}
+                  onContextMenu={(e) => {
+                    e.preventDefault();
+                    setWorkspaceMenu({ path, x: e.clientX, y: e.clientY });
+                  }}
+                >
+                  {basenameFromTauriPath(path)}
+                </button>
+              ))}
+            </div>
           </div>
-        ) : (
-          <div className="singleLayout">
-            {showEditor ? (
-              <textarea
-                className="editor editorSingle"
-                value={content}
-                onInput={(e) => {
-                  const next = (e.target as HTMLTextAreaElement).value;
-                  const prev = contentRef.current;
+        ) : null}
+      </aside>
 
-                  setContent(next);
-                  setDirty(next !== savedContentRef.current);
+      {workspaceMenu ? (
+        <div
+          className="workspaceContextMenu"
+          style={{ left: `${workspaceMenu.x}px`, top: `${workspaceMenu.y}px` }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <button
+            type="button"
+            onClick={() => {
+              setWorkspaceFiles((prev) => prev.filter((p) => p !== workspaceMenu.path));
+              setWorkspaceMenu(null);
+            }}
+          >
+            Close
+          </button>
+        </div>
+      ) : null}
 
-                  // Group undo steps while typing (debounce).
-                  if (historyRef.current.pendingPrev === null) {
-                    if (historyRef.current.past.length === 0 || historyRef.current.past[historyRef.current.past.length - 1] !== prev) {
-                      historyRef.current.past.push(prev);
+      <main className="mainPane">
+        {error ? <div className="error">{error}</div> : null}
+
+        <div className="doc">
+          <div className="docTitle">{title}</div>
+
+          {mode === "split" ? (
+            <div className="splitLayout">
+              {showEditor ? (
+                <textarea
+                  className="editor editorSplit"
+                  value={content}
+                  onInput={(e) => {
+                    const next = (e.target as HTMLTextAreaElement).value;
+                    const prev = contentRef.current;
+
+                    setContent(next);
+                    setDirty(next !== savedContentRef.current);
+
+                    if (historyRef.current.pendingPrev === null) {
+                      if (historyRef.current.past.length === 0 || historyRef.current.past[historyRef.current.past.length - 1] !== prev) {
+                        historyRef.current.past.push(prev);
+                      }
+                      historyRef.current.future = [];
+                      historyRef.current.pendingPrev = prev;
                     }
-                    historyRef.current.future = [];
-                    historyRef.current.pendingPrev = prev;
-                  }
 
-                  if (historyRef.current.typingTimer) {
-                    clearTimeout(historyRef.current.typingTimer);
-                  }
-                  historyRef.current.typingTimer = window.setTimeout(() => {
-                    historyRef.current.pendingPrev = null;
-                    historyRef.current.typingTimer = null;
-                  }, 500);
-                }}
-                placeholder={"Commencez à écrire votre Markdown…"}
-              />
-            ) : null}
-            {showPreview ? <div ref={previewElRef} className="preview previewSingle" /> : null}
-          </div>
-        )}
-      </div>
+                    if (historyRef.current.typingTimer) {
+                      clearTimeout(historyRef.current.typingTimer);
+                    }
+                    historyRef.current.typingTimer = window.setTimeout(() => {
+                      historyRef.current.pendingPrev = null;
+                      historyRef.current.typingTimer = null;
+                    }, 500);
+                  }}
+                  placeholder={"Commencez à écrire votre Markdown…"}
+                />
+              ) : null}
+              {showPreview ? <div ref={previewElRef} className="preview previewSplit" /> : null}
+            </div>
+          ) : (
+            <div className="singleLayout">
+              {showEditor ? (
+                <textarea
+                  className="editor editorSingle"
+                  value={content}
+                  onInput={(e) => {
+                    const next = (e.target as HTMLTextAreaElement).value;
+                    const prev = contentRef.current;
+
+                    setContent(next);
+                    setDirty(next !== savedContentRef.current);
+
+                    if (historyRef.current.pendingPrev === null) {
+                      if (historyRef.current.past.length === 0 || historyRef.current.past[historyRef.current.past.length - 1] !== prev) {
+                        historyRef.current.past.push(prev);
+                      }
+                      historyRef.current.future = [];
+                      historyRef.current.pendingPrev = prev;
+                    }
+
+                    if (historyRef.current.typingTimer) {
+                      clearTimeout(historyRef.current.typingTimer);
+                    }
+                    historyRef.current.typingTimer = window.setTimeout(() => {
+                      historyRef.current.pendingPrev = null;
+                      historyRef.current.typingTimer = null;
+                    }, 500);
+                  }}
+                  placeholder={"Commencez à écrire votre Markdown…"}
+                />
+              ) : null}
+              {showPreview ? <div ref={previewElRef} className="preview previewSingle" /> : null}
+            </div>
+          )}
+        </div>
+      </main>
     </div>
   );
 }
