@@ -9,6 +9,7 @@ import type { CheckMenuItem, MenuItem } from "@tauri-apps/api/menu";
 type Mode = "single" | "split";
 type SingleView = "edit" | "preview";
 const WORKSPACE_STORAGE_KEY = "bloom.workspace.files";
+const UNTITLED_WORKSPACE_KEY = "__bloom_untitled__";
 
 const md = new MarkdownIt({
   html: false,
@@ -52,6 +53,22 @@ export default function App() {
 
   const addPathToWorkspace = (path: string) => {
     setWorkspaceFiles((prev) => (prev.includes(path) ? prev : [...prev, path]));
+  };
+
+  const createNewUntitled = () => {
+    addPathToWorkspace(UNTITLED_WORKSPACE_KEY);
+    setFilePath(null);
+    setContent("");
+    setDirty(false);
+    setSingleView("edit");
+    savedContentRef.current = "";
+    historyRef.current.past = [];
+    historyRef.current.future = [];
+    if (historyRef.current.typingTimer) {
+      clearTimeout(historyRef.current.typingTimer);
+    }
+    historyRef.current.typingTimer = null;
+    historyRef.current.pendingPrev = null;
   };
 
   useEffect(() => {
@@ -146,6 +163,10 @@ export default function App() {
   const openWorkspaceFile = async (path: string) => {
     setError(null);
     try {
+      if (path === UNTITLED_WORKSPACE_KEY) {
+        createNewUntitled();
+        return;
+      }
       const text = await readTextFile(path);
       addPathToWorkspace(path);
       setFilePath(path);
@@ -198,6 +219,7 @@ export default function App() {
         await writeTextFile(selected, currentContent);
         setFilePath(selected); // persist actual path for subsequent saves
         addPathToWorkspace(selected);
+        setWorkspaceFiles((prev) => prev.filter((p) => p !== UNTITLED_WORKSPACE_KEY));
         setDirty(false);
         savedContentRef.current = currentContent;
         historyRef.current.past = [];
@@ -237,6 +259,11 @@ export default function App() {
       if (key === "o") {
         event.preventDefault();
         void openMarkdown();
+        return;
+      }
+      if (key === "n") {
+        event.preventDefault();
+        createNewUntitled();
         return;
       }
       if (key === "s") {
@@ -445,14 +472,18 @@ export default function App() {
                 <button
                   key={path}
                   type="button"
-                  className={path === filePath ? "workspaceItem active" : "workspaceItem"}
+                  className={
+                    path === filePath || (path === UNTITLED_WORKSPACE_KEY && filePath === null)
+                      ? "workspaceItem active"
+                      : "workspaceItem"
+                  }
                   onClick={() => void openWorkspaceFile(path)}
                   onContextMenu={(e) => {
                     e.preventDefault();
                     setWorkspaceMenu({ path, x: e.clientX, y: e.clientY });
                   }}
                 >
-                  {basenameFromTauriPath(path)}
+                  {path === UNTITLED_WORKSPACE_KEY ? "untitled.md" : basenameFromTauriPath(path)}
                 </button>
               ))}
             </div>
