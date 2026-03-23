@@ -166,21 +166,24 @@ export default function App() {
 
     const mod = isMac ? "Cmd" : "Ctrl";
     const text = [
-      `${mod} + O  : ouvrir un fichier .md`,
-      `${mod} + S  : enregistrer (choisir un emplacement si nécessaire)`,
-      `${mod} + N  : nouveau document untitled.md`,
+      `${mod} + O  : open a Markdown file`,
+      `${mod} + S  : save the current Markdown file`,
+      `${mod} + N  : create a new untitled.md document`,
       `${mod} + M  : toggle Single / Split`,
-      `${mod} + I  : en Single, toggle Édition / Preview`,
+      `${mod} + I  : in Single, toggle Edit / Preview`,
       `${mod} + T  : toggle theme (dark / light)`,
+      `${mod} + 1  : set current line(s) to # heading`,
+      `${mod} + 2  : set current line(s) to ## heading`,
+      `${mod} + 3  : set current line(s) to ### heading`,
       `${mod} + Z  : undo`,
-      `${mod} + Shift + Z ou ${mod} + Y : redo`,
-      `${mod} + C  : copier`,
-      `${mod} + X  : couper`,
+      `${mod} + Shift + Z or ${mod} + Y : redo`,
+      `${mod} + C  : copy`,
+      `${mod} + X  : cut`,
       "",
-      "Astuce : clic droit sur un élément du workspace -> Close.",
+      "Tip: right-click a Workspace item -> Close (remove it from the workspace).",
     ].join("\n");
 
-    await message(text, { title: "Shortcuts", kind: "info" });
+    await message(text, { title: "Help", kind: "info" });
   };
 
   const openWorkspaceFile = async (path: string) => {
@@ -437,12 +440,11 @@ export default function App() {
         });
 
         const shortcutsMenu = await tauriMenu.Submenu.new({
-          id: "menu_shortcuts",
-          text: "Shortcuts",
+          id: "menu_help",
+          text: "Help",
           items: [shortcutsItem],
         });
 
-        // Sur macOS, le menu est global (app-wide).
         const appMenu = await tauriMenu.Menu.new({
           id: "app_menu",
           items: [fileMenu, viewMenu, shortcutsMenu],
