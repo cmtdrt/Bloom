@@ -156,6 +156,7 @@ button {
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  border-radius: 10px;
   transition: width 160ms ease, background-color 160ms ease, border-right-color 160ms ease;
 }
 
