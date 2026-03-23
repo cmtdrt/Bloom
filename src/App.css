@@ -159,6 +159,8 @@ button {
 
 .workspaceClosed {
   width: 44px;
+  background: transparent;
+  border-right: none;
 }
 
 .workspaceOpen {
@@ -172,6 +174,9 @@ button {
   border-radius: 0;
   box-shadow: none;
   font-size: 18px;
+  background: transparent;
+  background-color: transparent;
+  color: var(--text-color);
 }
 
 .workspaceBody {
