@@ -1,7 +1,7 @@
 import "./App.css";
 import { useEffect, useMemo, useRef, useState } from "preact/hooks";
 import MarkdownIt from "markdown-it";
-import { open, save } from "@tauri-apps/plugin-dialog";
+import { message, open, save } from "@tauri-apps/plugin-dialog";
 import { readTextFile, writeTextFile } from "@tauri-apps/plugin-fs";
 import { menu as tauriMenu } from "@tauri-apps/api";
 import type { CheckMenuItem, MenuItem } from "@tauri-apps/api/menu";
@@ -158,6 +158,29 @@ export default function App() {
       setError(msg);
       console.error(e);
     }
+  };
+
+  const showShortcuts = async () => {
+    const isMac =
+      /Mac|iPod|iPhone|iPad/i.test(navigator.platform) || /Mac/i.test(navigator.userAgent || "");
+
+    const mod = isMac ? "Cmd" : "Ctrl";
+    const text = [
+      `${mod} + O  : ouvrir un fichier .md`,
+      `${mod} + S  : enregistrer (choisir un emplacement si nécessaire)`,
+      `${mod} + N  : nouveau document untitled.md`,
+      `${mod} + M  : toggle Single / Split`,
+      `${mod} + I  : en Single, toggle Édition / Preview`,
+      `${mod} + T  : toggle theme (dark / light)`,
+      `${mod} + Z  : undo`,
+      `${mod} + Shift + Z ou ${mod} + Y : redo`,
+      `${mod} + C  : copier`,
+      `${mod} + X  : couper`,
+      "",
+      "Astuce : clic droit sur un élément du workspace -> Close.",
+    ].join("\n");
+
+    await message(text, { title: "Shortcuts", kind: "info" });
   };
 
   const openWorkspaceFile = async (path: string) => {
@@ -405,10 +428,24 @@ export default function App() {
           items: [singleItem, splitItem, toggleThemeItem],
         });
 
+        const shortcutsItem = await tauriMenu.MenuItem.new({
+          id: "menu_shortcuts_show",
+          text: "Keyboard shortcuts",
+          action: () => {
+            void showShortcuts();
+          },
+        });
+
+        const shortcutsMenu = await tauriMenu.Submenu.new({
+          id: "menu_shortcuts",
+          text: "Shortcuts",
+          items: [shortcutsItem],
+        });
+
         // Sur macOS, le menu est global (app-wide).
         const appMenu = await tauriMenu.Menu.new({
           id: "app_menu",
-          items: [fileMenu, viewMenu],
+          items: [fileMenu, viewMenu, shortcutsMenu],
         });
         await appMenu.setAsAppMenu();
       } catch (e) {
