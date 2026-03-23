@@ -544,7 +544,7 @@ export default function App() {
                       historyRef.current.typingTimer = null;
                     }, 500);
                   }}
-                  placeholder={"Commencez à écrire votre Markdown…"}
+                  placeholder={"Start typing your Markdown…"}
                 />
               ) : null}
               {showPreview ? <div ref={previewElRef} className="preview previewSplit" /> : null}
@@ -578,7 +578,7 @@ export default function App() {
                       historyRef.current.typingTimer = null;
                     }, 500);
                   }}
-                  placeholder={"Commencez à écrire votre Markdown…"}
+                  placeholder={"Start typing your Markdown…"}
                 />
               ) : null}
               {showPreview ? <div ref={previewElRef} className="preview previewSingle" /> : null}
