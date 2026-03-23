@@ -155,12 +155,14 @@ button {
   background: var(--panel-bg);
   display: flex;
   flex-direction: column;
+  overflow: hidden;
+  transition: width 160ms ease, background-color 160ms ease, border-right-color 160ms ease;
 }
 
 .workspaceClosed {
   width: 44px;
   background: transparent;
-  border-right: none;
+  border-right-color: transparent;
 }
 
 .workspaceOpen {
@@ -177,6 +179,19 @@ button {
   background: transparent;
   background-color: transparent;
   color: var(--text-color);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.burgerIcon {
+  display: inline-block;
+  transform-origin: 50% 50%;
+  transition: transform 160ms ease;
+}
+
+.workspaceOpen .burgerIcon {
+  transform: rotate(90deg);
 }
 
 .workspaceBody {

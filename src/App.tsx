@@ -451,7 +451,7 @@ export default function App() {
           aria-label="Toggle workspace"
           onClick={() => setWorkspaceOpen((prev) => !prev)}
         >
-          ☰
+          <span className="burgerIcon">☰</span>
         </button>
 
         {workspaceOpen ? (
