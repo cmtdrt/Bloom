@@ -18,7 +18,7 @@ const md = new MarkdownIt({
   typographer: true,
 });
 
-function basenameFromTauriPath(path: string | null) {
+function basenameFromPath(path: string | null) {
   if (!path) return "";
   // Some Tauri flows return a URI (eg. file://...)
   try {
@@ -470,7 +470,7 @@ export default function App() {
     }
   }, [mode, filePath, dirty]);
 
-  const title = basenameFromTauriPath(filePath) || "untitled.md";
+  const title = basenameFromPath(filePath) || "untitled.md";
 
   const showEditor = mode === "split" || (mode === "single" && singleView === "edit");
   const showPreview = mode === "split" || (mode === "single" && singleView === "preview");
@@ -523,7 +523,7 @@ export default function App() {
                   }}
                 >
                   <span className="fileLabel">
-                    {path === UNTITLED_WORKSPACE_KEY ? "untitled.md" : basenameFromTauriPath(path)}
+                    {path === UNTITLED_WORKSPACE_KEY ? "untitled.md" : basenameFromPath(path)}
                   </span>
                   {dirty &&
                   (path === filePath || (path === UNTITLED_WORKSPACE_KEY && filePath === null)) ? (
