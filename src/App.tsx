@@ -1,15 +1,31 @@
 import "./App.css";
 import { useEffect, useMemo, useRef, useState } from "preact/hooks";
 import MarkdownIt from "markdown-it";
-import { message, open, save } from "@tauri-apps/plugin-dialog";
-import { readTextFile, writeTextFile } from "@tauri-apps/plugin-fs";
+import { confirm, message, open, save } from "@tauri-apps/plugin-dialog";
+import { mkdir, readDir, readFile, readTextFile, writeFile, writeTextFile } from "@tauri-apps/plugin-fs";
 import { menu as tauriMenu } from "@tauri-apps/api";
+import { convertFileSrc } from "@tauri-apps/api/core";
+import * as pathApi from "@tauri-apps/api/path";
+import JSZip from "jszip";
 import type { CheckMenuItem, MenuItem } from "@tauri-apps/api/menu";
 
 type Mode = "single" | "split";
 type SingleView = "edit" | "preview";
 const WORKSPACE_STORAGE_KEY = "bloom.workspace.files";
 const UNTITLED_WORKSPACE_KEY = "__bloom_untitled__";
+const BLOOM_DOC_NAME = "document.md";
+const BLOOM_ASSETS_DIR = "assets";
+
+type DocumentKind = "untitled" | "md" | "bloom";
+type DocumentMeta = {
+  kind: DocumentKind;
+  // Directory used to resolve relative assets in preview (absolute path).
+  baseDir?: string;
+  // Local staging dir for assets for this document (absolute path).
+  assetsDir?: string;
+  // List of asset filenames stored under assetsDir / assets/ (e.g. ["img.png"]).
+  assetFiles: string[];
+};
 
 const md = new MarkdownIt({
   html: false,
@@ -17,6 +33,43 @@ const md = new MarkdownIt({
   breaks: true,
   typographer: true,
 });
+
+// Render markdown and rewrite local image URLs to something the webview can load.
+const defaultImageRenderer =
+  md.renderer.rules.image ??
+  ((tokens: any, idx: any, options: any, _env: any, self: any) => self.renderToken(tokens, idx, options));
+
+md.renderer.rules.image = (tokens: any, idx: any, options: any, env: any, self: any) => {
+  const token = tokens[idx];
+  const srcIdx = token.attrIndex("src");
+  if (srcIdx >= 0) {
+    const src = token.attrs?.[srcIdx]?.[1] ?? "";
+    const baseDir = (env as { baseDir?: string } | undefined)?.baseDir;
+    if (baseDir && src && !/^(https?:|data:|blob:|file:)/i.test(src)) {
+      const normalized = src.replace(/^\.?\//, "");
+      const resolved = `${baseDir}/${normalized}`.replace(/\/+/g, "/");
+      token.attrs![srcIdx][1] = convertFileSrc(resolved);
+    }
+  }
+  return defaultImageRenderer(tokens, idx, options, env, self);
+};
+
+function renderMarkdownWithBaseDir(text: string, baseDir?: string) {
+  return md.render(text || "", { baseDir });
+}
+
+function randomId() {
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function isBloomPath(p: string) {
+  return p.toLowerCase().endsWith(".bloom");
+}
+
+function isMarkdownPath(p: string) {
+  const lower = p.toLowerCase();
+  return lower.endsWith(".md") || lower.endsWith(".markdown");
+}
 
 function basenameFromPath(path: string | null) {
   if (!path) return "";
@@ -46,17 +99,71 @@ export default function App() {
     path: string;
     x: number;
     y: number;
+    kind: "context" | "more";
   } | null>(null);
 
-  const previewHtml = useMemo(() => md.render(content || ""), [content]);
+  const [docMeta, setDocMeta] = useState<DocumentMeta>({
+    kind: "untitled",
+    assetFiles: [],
+  });
+
+  const previewHtml = useMemo(
+    () => renderMarkdownWithBaseDir(content || "", docMeta.baseDir),
+    [content, docMeta.baseDir]
+  );
   const previewElRef = useRef<HTMLDivElement | null>(null);
+  const editorRef = useRef<HTMLTextAreaElement | null>(null);
 
   const addPathToWorkspace = (path: string) => {
     setWorkspaceFiles((prev) => (prev.includes(path) ? prev : [...prev, path]));
   };
 
-  const createNewUntitled = () => {
+  const ensureTempDocDirs = async () => {
+    // Use AppData/Bloom for staging extracted bloom + pasted images.
+    const appData = await pathApi.appDataDir();
+    const root = await pathApi.join(appData, "Bloom");
+    const docsRoot = await pathApi.join(root, "docs");
+    await mkdir(root, { recursive: true });
+    await mkdir(docsRoot, { recursive: true });
+    return { root, docsRoot };
+  };
+
+  const insertTextAtCursor = (text: string) => {
+    const el = editorRef.current;
+    if (!el) return;
+    const prev = contentRef.current;
+    const start = el.selectionStart ?? prev.length;
+    const end = el.selectionEnd ?? prev.length;
+    const next = prev.slice(0, start) + text + prev.slice(end);
+    setContent(next);
+    setDirty(next !== savedContentRef.current);
+    requestAnimationFrame(() => {
+      const caret = start + text.length;
+      el.setSelectionRange(caret, caret);
+      el.focus();
+    });
+  };
+
+  const ensureAssetsDir = async (): Promise<{ baseDir: string; assetsDir: string }> => {
+    if (docMeta.baseDir && docMeta.assetsDir) return { baseDir: docMeta.baseDir, assetsDir: docMeta.assetsDir };
+    const { docsRoot } = await ensureTempDocDirs();
+    const id = randomId();
+    const baseDir = await pathApi.join(docsRoot, id);
+    const assetsDir = await pathApi.join(baseDir, BLOOM_ASSETS_DIR);
+    await mkdir(assetsDir, { recursive: true });
+    setDocMeta((prev) => ({ ...prev, baseDir, assetsDir }));
+    return { baseDir, assetsDir };
+  };
+
+  const createNewUntitledAsync = async () => {
     addPathToWorkspace(UNTITLED_WORKSPACE_KEY);
+    const { docsRoot } = await ensureTempDocDirs();
+    const id = randomId();
+    const baseDir = await pathApi.join(docsRoot, id);
+    const assetsDir = await pathApi.join(baseDir, BLOOM_ASSETS_DIR);
+    await mkdir(assetsDir, { recursive: true });
+
+    setDocMeta({ kind: "untitled", baseDir, assetsDir, assetFiles: [] });
     setFilePath(null);
     setContent("");
     setDirty(false);
@@ -64,11 +171,13 @@ export default function App() {
     savedContentRef.current = "";
     historyRef.current.past = [];
     historyRef.current.future = [];
-    if (historyRef.current.typingTimer) {
-      clearTimeout(historyRef.current.typingTimer);
-    }
+    if (historyRef.current.typingTimer) clearTimeout(historyRef.current.typingTimer);
     historyRef.current.typingTimer = null;
     historyRef.current.pendingPrev = null;
+  };
+
+  const createNewUntitled = () => {
+    void createNewUntitledAsync();
   };
 
   useEffect(() => {
@@ -97,6 +206,82 @@ export default function App() {
       window.removeEventListener("resize", closeWorkspaceMenu);
     };
   }, []);
+
+  const convertCurrentMdToBloom = async (): Promise<string | null> => {
+    if (!filePathRef.current) return null;
+    const current = filePathRef.current;
+    if (!isMarkdownPath(current)) return null;
+    const dir = await pathApi.dirname(current);
+    const base = basenameFromPath(current).replace(/\.(md|markdown)$/i, "");
+    const defaultBloomPath = await pathApi.join(dir, `${base}.bloom`);
+
+    const target = await save({
+      filters: [{ name: "Bloom", extensions: ["bloom"] }],
+      defaultPath: defaultBloomPath,
+    });
+    if (!target) return null;
+
+    const mdText = contentRef.current;
+    const { assetsDir } = await ensureAssetsDir();
+
+    const zip = new JSZip();
+    zip.file(BLOOM_DOC_NAME, mdText);
+    zip.folder(BLOOM_ASSETS_DIR); // create empty assets folder
+    // If there are already staged assets (rare for md), include them.
+    const entries = await readDir(assetsDir);
+    for (const entry of entries) {
+      if (!entry.isFile) continue;
+      const name = entry.name;
+      if (!name) continue;
+      const data = await readFile(await pathApi.join(assetsDir, name));
+      zip.file(`${BLOOM_ASSETS_DIR}/${name}`, data);
+    }
+    const out = await zip.generateAsync({ type: "uint8array" });
+    await writeFile(target, out);
+
+    // Update current doc to be bloom
+    setFilePath(target);
+    setDocMeta((prev) => ({ ...prev, kind: "bloom" }));
+    savedContentRef.current = mdText;
+    setDirty(false);
+
+    // Workspace: replace path
+    setWorkspaceFiles((prev) => prev.map((p) => (p === current ? target : p)));
+    addPathToWorkspace(target);
+    return target;
+  };
+
+  const convertWorkspaceMdToBloom = async (mdPath: string): Promise<string | null> => {
+    if (!isMarkdownPath(mdPath)) return null;
+    const dir = await pathApi.dirname(mdPath);
+    const base = basenameFromPath(mdPath).replace(/\.(md|markdown)$/i, "");
+    const defaultBloomPath = await pathApi.join(dir, `${base}.bloom`);
+
+    const target = await save({
+      filters: [{ name: "Bloom", extensions: ["bloom"] }],
+      defaultPath: defaultBloomPath,
+    });
+    if (!target) return null;
+
+    const mdText = mdPath === filePathRef.current ? contentRef.current : await readTextFile(mdPath);
+    const zip = new JSZip();
+    zip.file(BLOOM_DOC_NAME, mdText);
+    zip.folder(BLOOM_ASSETS_DIR);
+    const out = await zip.generateAsync({ type: "uint8array" });
+    await writeFile(target, out);
+
+    setWorkspaceFiles((prev) => prev.map((p) => (p === mdPath ? target : p)));
+    addPathToWorkspace(target);
+
+    if (mdPath === filePathRef.current) {
+      setFilePath(target);
+      setDocMeta((prev) => ({ ...prev, kind: "bloom" }));
+      savedContentRef.current = mdText;
+      setDirty(false);
+    }
+
+    return target;
+  };
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -136,16 +321,53 @@ export default function App() {
       const selected = await open({
         multiple: false,
         directory: false,
-        filters: [{ name: "Markdown", extensions: ["md", "markdown"] }],
+        filters: [
+          { name: "Bloom", extensions: ["bloom"] },
+          { name: "Markdown", extensions: ["md", "markdown"] },
+        ],
       });
       if (!selected) return;
 
-      const text = await readTextFile(selected);
-      setFilePath(selected);
-      setContent(text);
       addPathToWorkspace(selected);
-      setDirty(false);
-      savedContentRef.current = text;
+
+      if (isBloomPath(selected)) {
+        const bytes = await readFile(selected);
+        const zip = await JSZip.loadAsync(bytes);
+        const mdFile = zip.file(BLOOM_DOC_NAME);
+        const mdText = mdFile ? await mdFile.async("string") : "";
+
+        const { docsRoot } = await ensureTempDocDirs();
+        const id = randomId();
+        const baseDir = await pathApi.join(docsRoot, id);
+        const assetsDir = await pathApi.join(baseDir, BLOOM_ASSETS_DIR);
+        await mkdir(assetsDir, { recursive: true });
+
+        const assetFiles: string[] = [];
+        const prefix = `${BLOOM_ASSETS_DIR}/`;
+        for (const name of Object.keys(zip.files)) {
+          if (!name.startsWith(prefix)) continue;
+          if (zip.files[name].dir) continue;
+          const rel = name.slice(prefix.length);
+          if (!rel) continue;
+          const data = await zip.files[name].async("uint8array");
+          await writeFile(await pathApi.join(assetsDir, rel), data);
+          assetFiles.push(rel);
+        }
+
+        setDocMeta({ kind: "bloom", baseDir, assetsDir, assetFiles });
+        setFilePath(selected);
+        setContent(mdText);
+        setDirty(false);
+        savedContentRef.current = mdText;
+      } else {
+        const text = await readTextFile(selected);
+        const baseDir = await pathApi.dirname(selected);
+        setDocMeta({ kind: "md", baseDir, assetsDir: undefined, assetFiles: [] });
+        setFilePath(selected);
+        setContent(text);
+        setDirty(false);
+        savedContentRef.current = text;
+      }
       historyRef.current.past = [];
       historyRef.current.future = [];
       if (historyRef.current.typingTimer) {
@@ -193,12 +415,46 @@ export default function App() {
         createNewUntitled();
         return;
       }
-      const text = await readTextFile(path);
       addPathToWorkspace(path);
-      setFilePath(path);
-      setContent(text);
-      setDirty(false);
-      savedContentRef.current = text;
+
+      if (isBloomPath(path)) {
+        const bytes = await readFile(path);
+        const zip = await JSZip.loadAsync(bytes);
+        const mdFile = zip.file(BLOOM_DOC_NAME);
+        const mdText = mdFile ? await mdFile.async("string") : "";
+
+        const { docsRoot } = await ensureTempDocDirs();
+        const id = randomId();
+        const baseDir = await pathApi.join(docsRoot, id);
+        const assetsDir = await pathApi.join(baseDir, BLOOM_ASSETS_DIR);
+        await mkdir(assetsDir, { recursive: true });
+
+        const assetFiles: string[] = [];
+        const prefix = `${BLOOM_ASSETS_DIR}/`;
+        for (const name of Object.keys(zip.files)) {
+          if (!name.startsWith(prefix)) continue;
+          if (zip.files[name].dir) continue;
+          const rel = name.slice(prefix.length);
+          if (!rel) continue;
+          const data = await zip.files[name].async("uint8array");
+          await writeFile(await pathApi.join(assetsDir, rel), data);
+          assetFiles.push(rel);
+        }
+
+        setDocMeta({ kind: "bloom", baseDir, assetsDir, assetFiles });
+        setFilePath(path);
+        setContent(mdText);
+        setDirty(false);
+        savedContentRef.current = mdText;
+      } else {
+        const text = await readTextFile(path);
+        const baseDir = await pathApi.dirname(path);
+        setDocMeta({ kind: "md", baseDir, assetsDir: undefined, assetFiles: [] });
+        setFilePath(path);
+        setContent(text);
+        setDirty(false);
+        savedContentRef.current = text;
+      }
       historyRef.current.past = [];
       historyRef.current.future = [];
       if (historyRef.current.typingTimer) {
@@ -238,12 +494,36 @@ export default function App() {
 
       if (!currentPath) {
         const selected = await save({
-          filters: [{ name: "Markdown", extensions: ["md", "markdown"] }],
+          filters: [
+            { name: "Bloom", extensions: ["bloom"] },
+            { name: "Markdown", extensions: ["md", "markdown"] },
+          ],
           defaultPath: "untitled.md",
         });
         if (!selected) return;
-        await writeTextFile(selected, currentContent);
-        setFilePath(selected); // persist actual path for subsequent saves
+        if (isBloomPath(selected)) {
+          const zip = new JSZip();
+          zip.file(BLOOM_DOC_NAME, currentContent);
+          const folder = zip.folder(BLOOM_ASSETS_DIR);
+          const { assetsDir } = await ensureAssetsDir();
+          const entries = await readDir(assetsDir);
+          for (const entry of entries) {
+            if (!entry.isFile) continue;
+            const name = entry.name;
+            if (!name) continue;
+            const data = await readFile(await pathApi.join(assetsDir, name));
+            folder?.file(name, data);
+          }
+          const out = await zip.generateAsync({ type: "uint8array" });
+          await writeFile(selected, out);
+          setDocMeta((prev) => ({ ...prev, kind: "bloom" }));
+        } else {
+          await writeTextFile(selected, currentContent);
+          const baseDir = await pathApi.dirname(selected);
+          setDocMeta({ kind: "md", baseDir, assetsDir: undefined, assetFiles: [] });
+        }
+
+        setFilePath(selected);
         addPathToWorkspace(selected);
         setWorkspaceFiles((prev) => prev.filter((p) => p !== UNTITLED_WORKSPACE_KEY));
         setDirty(false);
@@ -258,7 +538,24 @@ export default function App() {
         return;
       }
 
-      await writeTextFile(currentPath, currentContent);
+      if (isBloomPath(currentPath) || docMeta.kind === "bloom") {
+        const zip = new JSZip();
+        zip.file(BLOOM_DOC_NAME, currentContent);
+        const folder = zip.folder(BLOOM_ASSETS_DIR);
+        const { assetsDir } = await ensureAssetsDir();
+        const entries = await readDir(assetsDir);
+        for (const entry of entries) {
+          if (!entry.isFile) continue;
+          const name = entry.name;
+          if (!name) continue;
+          const data = await readFile(await pathApi.join(assetsDir, name));
+          folder?.file(name, data);
+        }
+        const out = await zip.generateAsync({ type: "uint8array" });
+        await writeFile(currentPath, out);
+      } else {
+        await writeTextFile(currentPath, currentContent);
+      }
       setDirty(false);
       savedContentRef.current = currentContent;
       historyRef.current.past = [];
@@ -519,16 +816,30 @@ export default function App() {
                   onClick={() => void openWorkspaceFile(path)}
                   onContextMenu={(e) => {
                     e.preventDefault();
-                    setWorkspaceMenu({ path, x: e.clientX, y: e.clientY });
+                    setWorkspaceMenu({ path, x: e.clientX, y: e.clientY, kind: "context" });
                   }}
                 >
                   <span className="fileLabel">
                     {path === UNTITLED_WORKSPACE_KEY ? "untitled.md" : basenameFromPath(path)}
                   </span>
-                  {dirty &&
-                  (path === filePath || (path === UNTITLED_WORKSPACE_KEY && filePath === null)) ? (
-                    <span className="notSavedDot" aria-label="Unsaved changes" />
-                  ) : null}
+                  <span className="workspaceRight">
+                    {dirty &&
+                    (path === filePath || (path === UNTITLED_WORKSPACE_KEY && filePath === null)) ? (
+                      <span className="notSavedDot" aria-label="Unsaved changes" />
+                    ) : null}
+                    <button
+                      type="button"
+                      className="workspaceMoreBtn"
+                      aria-label="More"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        setWorkspaceMenu({ path, x: e.clientX, y: e.clientY, kind: "more" });
+                      }}
+                    >
+                      ...
+                    </button>
+                  </span>
                 </button>
               ))}
             </div>
@@ -542,6 +853,23 @@ export default function App() {
           style={{ left: `${workspaceMenu.x}px`, top: `${workspaceMenu.y}px` }}
           onClick={(e) => e.stopPropagation()}
         >
+          {workspaceMenu.kind === "more" && isMarkdownPath(workspaceMenu.path) ? (
+            <button
+              type="button"
+              onClick={() => {
+                void (async () => {
+                  try {
+                    await convertWorkspaceMdToBloom(workspaceMenu.path);
+                  } finally {
+                    setWorkspaceMenu(null);
+                  }
+                })();
+              }}
+            >
+              Convert to .bloom
+            </button>
+          ) : null}
+
           <button
             type="button"
             onClick={() => {
@@ -567,8 +895,45 @@ export default function App() {
             <div className="splitLayout">
               {showEditor ? (
                 <textarea
+                  ref={editorRef}
                   className="editor editorSplit"
                   value={content}
+                  onPaste={(e) => {
+                    const dt = e.clipboardData;
+                    if (!dt) return;
+                    const items = Array.from(dt.items);
+                    const img = items.find((it) => it.kind === "file" && it.type.startsWith("image/"));
+                    if (!img) return;
+                    const file = img.getAsFile();
+                    if (!file) return;
+                    e.preventDefault();
+                    void (async () => {
+                      try {
+                        if (docMeta.kind === "md") {
+                          const ok = await confirm(
+                            "Pasting images requires a .bloom document.\n\nConvert this file to .bloom now?",
+                            { title: "Convert to .bloom", okLabel: "Convert", cancelLabel: "Cancel" }
+                          );
+                          if (!ok) return;
+                          const converted = await convertCurrentMdToBloom();
+                          if (!converted) return;
+                        }
+                        const { assetsDir } = await ensureAssetsDir();
+                        const ext = file.type === "image/jpeg" ? "jpg" : "png";
+                        const filename = `img-${randomId()}.${ext}`;
+                        const bytes = new Uint8Array(await file.arrayBuffer());
+                        await writeFile(await pathApi.join(assetsDir, filename), bytes);
+                        setDocMeta((prev) => ({
+                          ...prev,
+                          kind: prev.kind === "md" ? prev.kind : "bloom",
+                          assetFiles: prev.assetFiles.includes(filename) ? prev.assetFiles : [...prev.assetFiles, filename],
+                        }));
+                        insertTextAtCursor(`![](${BLOOM_ASSETS_DIR}/${filename})`);
+                      } catch (err) {
+                        console.error(err);
+                      }
+                    })();
+                  }}
                   onInput={(e) => {
                     const next = (e.target as HTMLTextAreaElement).value;
                     const prev = contentRef.current;
@@ -601,8 +966,45 @@ export default function App() {
             <div className="singleLayout">
               {showEditor ? (
                 <textarea
+                  ref={editorRef}
                   className="editor editorSingle"
                   value={content}
+                  onPaste={(e) => {
+                    const dt = e.clipboardData;
+                    if (!dt) return;
+                    const items = Array.from(dt.items);
+                    const img = items.find((it) => it.kind === "file" && it.type.startsWith("image/"));
+                    if (!img) return;
+                    const file = img.getAsFile();
+                    if (!file) return;
+                    e.preventDefault();
+                    void (async () => {
+                      try {
+                        if (docMeta.kind === "md") {
+                          const ok = await confirm(
+                            "Pasting images requires a .bloom document.\n\nConvert this file to .bloom now?",
+                            { title: "Convert to .bloom", okLabel: "Convert", cancelLabel: "Cancel" }
+                          );
+                          if (!ok) return;
+                          const converted = await convertCurrentMdToBloom();
+                          if (!converted) return;
+                        }
+                        const { assetsDir } = await ensureAssetsDir();
+                        const ext = file.type === "image/jpeg" ? "jpg" : "png";
+                        const filename = `img-${randomId()}.${ext}`;
+                        const bytes = new Uint8Array(await file.arrayBuffer());
+                        await writeFile(await pathApi.join(assetsDir, filename), bytes);
+                        setDocMeta((prev) => ({
+                          ...prev,
+                          kind: prev.kind === "md" ? prev.kind : "bloom",
+                          assetFiles: prev.assetFiles.includes(filename) ? prev.assetFiles : [...prev.assetFiles, filename],
+                        }));
+                        insertTextAtCursor(`![](${BLOOM_ASSETS_DIR}/${filename})`);
+                      } catch (err) {
+                        console.error(err);
+                      }
+                    })();
+                  }}
                   onInput={(e) => {
                     const next = (e.target as HTMLTextAreaElement).value;
                     const prev = contentRef.current;
