@@ -522,7 +522,13 @@ export default function App() {
                     setWorkspaceMenu({ path, x: e.clientX, y: e.clientY });
                   }}
                 >
-                  {path === UNTITLED_WORKSPACE_KEY ? "untitled.md" : basenameFromTauriPath(path)}
+                  <span className="fileLabel">
+                    {path === UNTITLED_WORKSPACE_KEY ? "untitled.md" : basenameFromTauriPath(path)}
+                  </span>
+                  {dirty &&
+                  (path === filePath || (path === UNTITLED_WORKSPACE_KEY && filePath === null)) ? (
+                    <span className="notSavedDot" aria-label="Unsaved changes" />
+                  ) : null}
                 </button>
               ))}
             </div>
@@ -552,7 +558,10 @@ export default function App() {
         {error ? <div className="error">{error}</div> : null}
 
         <div className="doc">
-          <div className="docTitle">{title}</div>
+          <div className="docTitle">
+            <span className="fileLabel">{title}</span>
+            {dirty ? <span className="notSavedDot" aria-label="Unsaved changes" /> : null}
+          </div>
 
           {mode === "split" ? (
             <div className="splitLayout">

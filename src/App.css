@@ -273,6 +273,29 @@ button {
 .docTitle {
   font-weight: 700;
   font-size: 18px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.fileLabel {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.notSavedDot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: #ffffff;
+  flex: 0 0 auto;
+  opacity: 0.9;
+}
+
+[data-theme="light"] .notSavedDot {
+  background: #0f0f0f;
 }
 
 .toolbar {
